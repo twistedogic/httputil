@@ -15,34 +15,41 @@ const (
 	fromCacheHeader = "X-HTTPCache"
 )
 
+type CacheKeyFunc func(*http.Request) (string, bool)
+
 func addCacheHeader(res *http.Response) {
 	res.Header.Set(fromCacheHeader, "true")
 }
 
-func requestToKey(req *http.Request) string {
+func DefaultKeyFunc(req *http.Request) (string, bool) {
 	if req == nil {
-		return ""
+		return "", false
 	}
-	return req.Method + "|" + req.URL.String()
+	return req.Method + "|" + req.URL.String(), true
 }
 
 type responseCache struct {
-	c cache.Cache
+	requestToKey CacheKeyFunc
+	c            cache.Cache
 }
 
 func (r responseCache) Cache(
 	req *http.Request, res *http.Response,
 	expireAt time.Time,
 ) {
-	key := requestToKey(req)
-	buf := &bytes.Buffer{}
-	if err := res.Write(buf); err == nil {
-		r.c.Set(req.Context(), key, cache.Item{ExpireAt: expireAt, Content: buf.Bytes()})
+	if key, ok := r.requestToKey(req); ok {
+		buf := &bytes.Buffer{}
+		if err := res.Write(buf); err == nil {
+			r.c.Set(req.Context(), key, cache.Item{ExpireAt: expireAt, Content: buf.Bytes()})
+		}
 	}
 }
 
 func (r responseCache) Fetch(req *http.Request) (*http.Response, bool) {
-	key := requestToKey(req)
+	key, ok := r.requestToKey(req)
+	if !ok {
+		return nil, false
+	}
 	item, exist := r.c.Get(req.Context(), key)
 	if !exist {
 		return nil, exist
@@ -74,12 +81,12 @@ func (c cacheTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return res, err
 }
 
-func WithCache(c cache.Cache, ttl time.Duration) RoundTripWrapper {
+func WithCache(c cache.Cache, fn CacheKeyFunc, ttl time.Duration) RoundTripWrapper {
 	return func(rt http.RoundTripper) http.RoundTripper {
 		return cacheTransport{
 			clk:   clock.New(),
 			rt:    rt,
-			cache: responseCache{c: c},
+			cache: responseCache{c: c, requestToKey: fn},
 			ttl:   ttl,
 		}
 	}

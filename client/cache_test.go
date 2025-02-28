@@ -18,7 +18,7 @@ func Test_WithCache(t *testing.T) {
 		clk := clock.NewMock()
 		clk.Set(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC))
 		rt := cacheTransport{
-			cache: responseCache{c: c}, clk: clk,
+			cache: responseCache{c: c, requestToKey: DefaultKeyFunc}, clk: clk,
 			rt:  http.DefaultTransport,
 			ttl: time.Hour,
 		}
